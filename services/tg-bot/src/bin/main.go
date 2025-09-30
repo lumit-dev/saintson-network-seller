@@ -207,6 +207,8 @@ func maybeHandleCancelCaptcha(bot *tgbotapi.BotAPI, update tgbotapi.Update) bool
 				logger.Log.Errorf("edit cancel confirm error: %v", err)
 			}
 		}
+		// Wait a bit before returning to home
+		time.Sleep(3 * time.Second)
 		showHome(bot, chatID)
 	} else {
 		chatID := update.Message.Chat.ID
@@ -283,6 +285,8 @@ func startFakePayment(bot *tgbotapi.BotAPI, cq *tgbotapi.CallbackQuery, tariff s
 			if _, err := bot.Request(tgbotapi.NewEditMessageText(chatID, msgID, fmt.Sprintf("Payment for %s completed!", tariff))); err != nil {
 				logger.Log.Errorf("edit payment done error: %v", err)
 			}
+			// Wait a bit before returning to home
+			time.Sleep(3 * time.Second)
 			showHome(bot, chatID)
 		case <-ch:
 			return
@@ -302,5 +306,7 @@ func cancelFakePayment(bot *tgbotapi.BotAPI, cq *tgbotapi.CallbackQuery) {
 			logger.Log.Errorf("edit payment cancel error: %v", err)
 		}
 	}
+	// Wait a bit before returning to home
+	time.Sleep(3 * time.Second)
 	showHome(bot, chatID)
 }
