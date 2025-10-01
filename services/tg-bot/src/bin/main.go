@@ -1,8 +1,5 @@
 package main
 
-<<<<<<< HEAD
-func main()
-=======
 import (
 	"fmt"
 	"math/rand"
@@ -562,4 +559,3 @@ func cancelFakePayment(bot *tgbotapi.BotAPI, cq *tgbotapi.CallbackQuery) {
 	time.Sleep(3 * time.Second)
 	showHome(bot, chatID)
 }
->>>>>>> d01b59b0c437bb90e4405e86b2fa93e72f7b7353
