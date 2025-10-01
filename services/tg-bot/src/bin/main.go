@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"strings"
 	"tgcli/src/lib/logger"
 	"time"
@@ -17,11 +18,77 @@ type pendingCancel struct {
 }
 
 var (
-	servers        = []string{"cfg1", "cfg2", "cfg3"}
-	userCancelByID = map[int64]pendingCancel{}
-	userPayment    = map[int64]chan struct{}{}
-	lastMsgByChat  = map[int64]int{}
+	servers              = []string{"cfg1", "cfg2", "cfg3"}
+	userCancelByID       = map[int64]pendingCancel{}
+	userPayment          = map[int64]chan struct{}{}
+	lastMsgByChat        = map[int64]int{}
+	currentIsPhotoByChat = map[int64]bool{}
 )
+
+const homeImageFile = "curses.png"
+
+func resolveImagePath(file string) (string, bool) {
+	// Try paths relative to executable and source tree
+	candidates := []string{}
+	if exePath, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exePath)
+		candidates = append(candidates,
+			filepath.Join(exeDir, "static", file),
+			filepath.Join(exeDir, "..", "static", file),
+			filepath.Join(exeDir, "src", "static", file),
+		)
+	}
+	candidates = append(candidates,
+		filepath.Join("static", file),
+		filepath.Join("src", "static", file),
+	)
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			return p, true
+		}
+	}
+	return "", false
+}
+
+func editPhotoWithCaption(bot *tgbotapi.BotAPI, chatID int64, msgID int, imagePath string, caption string, markup tgbotapi.InlineKeyboardMarkup) error {
+	media := tgbotapi.NewInputMediaPhoto(tgbotapi.FilePath(imagePath))
+	media.Caption = caption
+	cfg := tgbotapi.EditMessageMediaConfig{
+		BaseEdit: tgbotapi.BaseEdit{
+			ChatID:      chatID,
+			MessageID:   msgID,
+			ReplyMarkup: &markup,
+		},
+		Media: media,
+	}
+	_, err := bot.Request(cfg)
+	return err
+}
+
+func editCaptionOrText(bot *tgbotapi.BotAPI, chatID int64, msgID int, text string, markup tgbotapi.InlineKeyboardMarkup) error {
+	if currentIsPhotoByChat[chatID] {
+		// Photo message: edit caption; attach markup only if non-empty
+		if len(markup.InlineKeyboard) > 0 {
+			edit := tgbotapi.NewEditMessageCaption(chatID, msgID, text)
+			edit.ReplyMarkup = &markup
+			_, err := bot.Request(edit)
+			return err
+		}
+		// No buttons
+		edit := tgbotapi.NewEditMessageCaption(chatID, msgID, text)
+		_, err := bot.Request(edit)
+		return err
+	}
+	// Text message: if we have buttons, use TextAndMarkup; else only text
+	if len(markup.InlineKeyboard) > 0 {
+		edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
+		_, err := bot.Request(edit)
+		return err
+	}
+	edit := tgbotapi.NewEditMessageText(chatID, msgID, text)
+	_, err := bot.Request(edit)
+	return err
+}
 
 func init() {
 	rand.Seed(time.Now().UnixNano())
@@ -81,6 +148,16 @@ func main() {
 				handleServList(bot, update.CallbackQuery)
 			case "home":
 				showHome(bot, update.CallbackQuery.Message.Chat.ID)
+			case "additional":
+				showAdditional(bot, update.CallbackQuery)
+			case "courses":
+				showCourses(bot, update.CallbackQuery)
+			case "courses:golang":
+				showGolangCourses(bot, update.CallbackQuery)
+			case "courses:git":
+				showGitCourses(bot, update.CallbackQuery)
+			case "courses:db":
+				showDatabaseCourses(bot, update.CallbackQuery)
 			case "get_new":
 				handleGetNew(bot, update.CallbackQuery)
 			case "tariff:1m":
@@ -110,26 +187,203 @@ func main() {
 }
 
 func showHome(bot *tgbotapi.BotAPI, chatID int64) {
-	text := "Hello! I am seller bot\nHere are commands for you!"
+	caption := "Предоставляем вам IT course по тому как стать Backend разработчиком на GoLang\n"
 	markup := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("Additional", "additional"),
+			tgbotapi.NewInlineKeyboardButtonData("Courses", "courses"),
+		),
+	)
+	if msgID, ok := lastMsgByChat[chatID]; ok && msgID != 0 {
+		if imgPath, ok := resolveImagePath(homeImageFile); ok {
+			if err := editPhotoWithCaption(bot, chatID, msgID, imgPath, caption, markup); err != nil {
+				logger.Log.Errorf("edit home photo error: %v", err)
+			}
+			currentIsPhotoByChat[chatID] = true
+		} else {
+			edit := tgbotapi.NewEditMessageCaption(chatID, msgID, caption)
+			edit.ReplyMarkup = &markup
+			if _, err := bot.Request(edit); err != nil {
+				logger.Log.Errorf("edit home caption error: %v", err)
+			}
+			currentIsPhotoByChat[chatID] = true
+		}
+		return
+	}
+	if imgPath, ok := resolveImagePath(homeImageFile); ok {
+		photo := tgbotapi.NewPhoto(chatID, tgbotapi.FilePath(imgPath))
+		photo.Caption = caption
+		photo.ReplyMarkup = markup
+		if sent, err := bot.Send(photo); err != nil {
+			logger.Log.Errorf("send home photo error: %v", err)
+		} else {
+			lastMsgByChat[chatID] = sent.MessageID
+		}
+		currentIsPhotoByChat[chatID] = true
+		return
+	}
+	msg := tgbotapi.NewMessage(chatID, caption)
+	msg.ReplyMarkup = markup
+	if sent, err := bot.Send(msg); err != nil {
+		logger.Log.Errorf("send home text error: %v", err)
+	} else {
+		lastMsgByChat[chatID] = sent.MessageID
+	}
+	currentIsPhotoByChat[chatID] = false
+}
+
+func showAdditional(bot *tgbotapi.BotAPI, cq *tgbotapi.CallbackQuery) {
+	chatID := cq.Message.Chat.ID
+	rows := [][]tgbotapi.InlineKeyboardButton{
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("serv list", "serv_list"),
 			tgbotapi.NewInlineKeyboardButtonData("get new", "get_new"),
 		),
-	)
-	if msgID, ok := lastMsgByChat[chatID]; ok && msgID != 0 {
-		edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
-		if _, err := bot.Request(edit); err != nil {
-			logger.Log.Errorf("edit home error: %v", err)
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("home", "home"),
+		),
+	}
+	// Replace photo message with a text message to avoid home photo propagation
+	del := tgbotapi.NewDeleteMessage(chatID, cq.Message.MessageID)
+	if _, err := bot.Request(del); err != nil {
+		logger.Log.Errorf("delete previous message error: %v", err)
+	}
+	msg := tgbotapi.NewMessage(chatID, "Additional menu:")
+	markup := tgbotapi.NewInlineKeyboardMarkup(rows...)
+	msg.ReplyMarkup = markup
+	if sent, err := bot.Send(msg); err != nil {
+		logger.Log.Errorf("send additional menu error: %v", err)
+	} else {
+		lastMsgByChat[chatID] = sent.MessageID
+	}
+	currentIsPhotoByChat[chatID] = false
+}
+
+func showCourses(bot *tgbotapi.BotAPI, cq *tgbotapi.CallbackQuery) {
+	chatID := cq.Message.Chat.ID
+	rows := [][]tgbotapi.InlineKeyboardButton{
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("GoLang", "courses:golang"),
+			tgbotapi.NewInlineKeyboardButtonData("Git", "courses:git"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("Database", "courses:db"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("home", "home"),
+		),
+	}
+	lastMsgByChat[chatID] = cq.Message.MessageID
+	caption := "Courses:"
+	markup := tgbotapi.NewInlineKeyboardMarkup(rows...)
+	if imgPath, ok := resolveImagePath(homeImageFile); ok {
+		if err := editPhotoWithCaption(bot, chatID, cq.Message.MessageID, imgPath, caption, markup); err != nil {
+			logger.Log.Errorf("edit courses photo error: %v", err)
+		}
+		currentIsPhotoByChat[chatID] = true
+		return
+	}
+	edit := tgbotapi.NewEditMessageCaption(chatID, cq.Message.MessageID, caption)
+	edit.ReplyMarkup = &markup
+	if _, err := bot.Request(edit); err != nil {
+		logger.Log.Errorf("edit courses menu error: %v", err)
+	}
+	currentIsPhotoByChat[chatID] = true
+}
+
+func showGolangCourses(bot *tgbotapi.BotAPI, cq *tgbotapi.CallbackQuery) {
+	chatID := cq.Message.Chat.ID
+	rows := [][]tgbotapi.InlineKeyboardButton{
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonURL("Конкурентность в GoLang", "https://www.youtube.com/watch?v=4aTt9E-EG-o"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonURL("Каналы в GoLang", "https://www.youtube.com/watch?v=k-1OEYl7N8Q"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonURL("База GoLang", "https://www.youtube.com/watch?v=SXTQj6XJOWg"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("<- Courses", "courses"),
+			tgbotapi.NewInlineKeyboardButtonData("home", "home"),
+		),
+	}
+	lastMsgByChat[chatID] = cq.Message.MessageID
+	caption := "GoLang courses:"
+	markup := tgbotapi.NewInlineKeyboardMarkup(rows...)
+	if imgPath, ok := resolveImagePath("go.png"); ok {
+		if err := editPhotoWithCaption(bot, chatID, cq.Message.MessageID, imgPath, caption, markup); err != nil {
+			logger.Log.Errorf("edit golang photo error: %v", err)
 		}
 		return
 	}
-	msg := tgbotapi.NewMessage(chatID, text)
-	msg.ReplyMarkup = markup
-	if sent, err := bot.Send(msg); err != nil {
-		logger.Log.Errorf("send home error: %v", err)
-	} else {
-		lastMsgByChat[chatID] = sent.MessageID
+	edit := tgbotapi.NewEditMessageCaption(chatID, cq.Message.MessageID, caption)
+	edit.ReplyMarkup = &markup
+	if _, err := bot.Request(edit); err != nil {
+		logger.Log.Errorf("edit golang list error: %v", err)
+	}
+}
+
+func showGitCourses(bot *tgbotapi.BotAPI, cq *tgbotapi.CallbackQuery) {
+	chatID := cq.Message.Chat.ID
+	rows := [][]tgbotapi.InlineKeyboardButton{
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonURL("база Git", "https://www.youtube.com/watch?v=XuFaQSW79rM&t=34s"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonURL("Git для профи", "https://www.youtube.com/watch?v=Uszj_k0DGsg&t=2405s&pp=ygUVZ2l0INC00LvRjyDQv9GA0L7RhNC40gcJCfYJAYcqIYzv"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("<- Courses", "courses"),
+			tgbotapi.NewInlineKeyboardButtonData("home", "home"),
+		),
+	}
+	lastMsgByChat[chatID] = cq.Message.MessageID
+	caption := "Git courses:"
+	markup := tgbotapi.NewInlineKeyboardMarkup(rows...)
+	if imgPath, ok := resolveImagePath("gitl.png"); ok {
+		if err := editPhotoWithCaption(bot, chatID, cq.Message.MessageID, imgPath, caption, markup); err != nil {
+			logger.Log.Errorf("edit git photo error: %v", err)
+		}
+		return
+	}
+	edit := tgbotapi.NewEditMessageCaption(chatID, cq.Message.MessageID, caption)
+	edit.ReplyMarkup = &markup
+	if _, err := bot.Request(edit); err != nil {
+		logger.Log.Errorf("edit git list error: %v", err)
+	}
+}
+
+func showDatabaseCourses(bot *tgbotapi.BotAPI, cq *tgbotapi.CallbackQuery) {
+	chatID := cq.Message.Chat.ID
+	rows := [][]tgbotapi.InlineKeyboardButton{
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonURL("Основы Баз данных", "https://www.youtube.com/watch?v=8L51FUsjMxA&pp=ygUV0LHQsNC30Ysg0LTQsNC90L3Ri9GF"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonURL("Реляционные Базы данных", "https://www.youtube.com/watch?v=IK6e1SFCdow&pp=ygUV0LHQsNC30Ysg0LTQsNC90L3Ri9GF0gcJCfYJAYcqIYzv"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonURL("NoSQL Базы данных", "https://www.youtube.com/watch?v=IBzTDkYNB7I&pp=ygUV0LHQsNC30Ysg0LTQsNC90L3Ri9GF"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("<- Courses", "courses"),
+			tgbotapi.NewInlineKeyboardButtonData("home", "home"),
+		),
+	}
+	lastMsgByChat[chatID] = cq.Message.MessageID
+	caption := "Database courses:"
+	markup := tgbotapi.NewInlineKeyboardMarkup(rows...)
+	if imgPath, ok := resolveImagePath("db.png"); ok {
+		if err := editPhotoWithCaption(bot, chatID, cq.Message.MessageID, imgPath, caption, markup); err != nil {
+			logger.Log.Errorf("edit db photo error: %v", err)
+		}
+		return
+	}
+	edit := tgbotapi.NewEditMessageCaption(chatID, cq.Message.MessageID, caption)
+	edit.ReplyMarkup = &markup
+	if _, err := bot.Request(edit); err != nil {
+		logger.Log.Errorf("edit database list error: %v", err)
 	}
 }
 
@@ -149,8 +403,8 @@ func handleServList(bot *tgbotapi.BotAPI, cq *tgbotapi.CallbackQuery) {
 		tgbotapi.NewInlineKeyboardButtonData("home", "home"),
 	))
 	lastMsgByChat[chatID] = cq.Message.MessageID
-	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, cq.Message.MessageID, "Select a server config:", tgbotapi.NewInlineKeyboardMarkup(rows...))
-	if _, err := bot.Request(edit); err != nil {
+	markup := tgbotapi.NewInlineKeyboardMarkup(rows...)
+	if err := editCaptionOrText(bot, chatID, cq.Message.MessageID, "Select a server config:", markup); err != nil {
 		logger.Log.Errorf("edit serv_list error: %v", err)
 	}
 }
@@ -165,8 +419,7 @@ func handleConfigDetails(bot *tgbotapi.BotAPI, cq *tgbotapi.CallbackQuery, cfgID
 		),
 	)
 	lastMsgByChat[chatID] = cq.Message.MessageID
-	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, cq.Message.MessageID, text, keyboard)
-	if _, err := bot.Request(edit); err != nil {
+	if err := editCaptionOrText(bot, chatID, cq.Message.MessageID, text, keyboard); err != nil {
 		logger.Log.Errorf("edit config details error: %v", err)
 	}
 }
@@ -182,8 +435,7 @@ func requestCancelWithCaptcha(bot *tgbotapi.BotAPI, cq *tgbotapi.CallbackQuery, 
 		),
 	)
 	lastMsgByChat[chatID] = cq.Message.MessageID
-	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, cq.Message.MessageID, prompt, keyboard)
-	if _, err := bot.Request(edit); err != nil {
+	if err := editCaptionOrText(bot, chatID, cq.Message.MessageID, prompt, keyboard); err != nil {
 		logger.Log.Errorf("edit captcha prompt error: %v", err)
 	}
 }
@@ -202,8 +454,7 @@ func maybeHandleCancelCaptcha(bot *tgbotapi.BotAPI, update tgbotapi.Update) bool
 		chatID := update.Message.Chat.ID
 		delete(userCancelByID, userID)
 		if msgID, ok := lastMsgByChat[chatID]; ok {
-			edit := tgbotapi.NewEditMessageText(chatID, msgID, fmt.Sprintf("Config %s cancelled.", pending.configID))
-			if _, err := bot.Request(edit); err != nil {
+			if err := editCaptionOrText(bot, chatID, msgID, fmt.Sprintf("Config %s cancelled.", pending.configID), tgbotapi.InlineKeyboardMarkup{}); err != nil {
 				logger.Log.Errorf("edit cancel confirm error: %v", err)
 			}
 		}
@@ -213,8 +464,7 @@ func maybeHandleCancelCaptcha(bot *tgbotapi.BotAPI, update tgbotapi.Update) bool
 	} else {
 		chatID := update.Message.Chat.ID
 		if msgID, ok := lastMsgByChat[chatID]; ok {
-			edit := tgbotapi.NewEditMessageText(chatID, msgID, fmt.Sprintf("Captcha mismatch. Please type '%s'", pending.token))
-			if _, err := bot.Request(edit); err != nil {
+			if err := editCaptionOrText(bot, chatID, msgID, fmt.Sprintf("Captcha mismatch. Please type '%s'", pending.token), tgbotapi.InlineKeyboardMarkup{}); err != nil {
 				logger.Log.Errorf("edit captcha retry error: %v", err)
 			}
 		}
@@ -241,8 +491,8 @@ func handleGetNew(bot *tgbotapi.BotAPI, cq *tgbotapi.CallbackQuery) {
 		),
 	}
 	lastMsgByChat[chatID] = cq.Message.MessageID
-	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, cq.Message.MessageID, "Choose a subscription period:", tgbotapi.NewInlineKeyboardMarkup(rows...))
-	if _, err := bot.Request(edit); err != nil {
+	markup := tgbotapi.NewInlineKeyboardMarkup(rows...)
+	if err := editCaptionOrText(bot, chatID, cq.Message.MessageID, "Choose a subscription period:", markup); err != nil {
 		logger.Log.Errorf("edit get_new menu error: %v", err)
 	}
 }
@@ -269,8 +519,7 @@ func startFakePayment(bot *tgbotapi.BotAPI, cq *tgbotapi.CallbackQuery, tariff s
 	)
 
 	lastMsgByChat[chatID] = cq.Message.MessageID
-	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, cq.Message.MessageID, text, keyboard)
-	if _, err := bot.Request(edit); err != nil {
+	if err := editCaptionOrText(bot, chatID, cq.Message.MessageID, text, keyboard); err != nil {
 		logger.Log.Errorf("edit payment start error: %v", err)
 	}
 
@@ -282,7 +531,7 @@ func startFakePayment(bot *tgbotapi.BotAPI, cq *tgbotapi.CallbackQuery, tariff s
 				return
 			}
 			delete(userPayment, userID)
-			if _, err := bot.Request(tgbotapi.NewEditMessageText(chatID, msgID, fmt.Sprintf("Payment for %s completed!", tariff))); err != nil {
+			if err := editCaptionOrText(bot, chatID, msgID, fmt.Sprintf("Payment for %s completed!", tariff), tgbotapi.InlineKeyboardMarkup{}); err != nil {
 				logger.Log.Errorf("edit payment done error: %v", err)
 			}
 			// Wait a bit before returning to home
@@ -302,7 +551,7 @@ func cancelFakePayment(bot *tgbotapi.BotAPI, cq *tgbotapi.CallbackQuery) {
 		delete(userPayment, userID)
 	}
 	if msgID, ok := lastMsgByChat[chatID]; ok {
-		if _, err := bot.Request(tgbotapi.NewEditMessageText(chatID, msgID, "Payment cancelled.")); err != nil {
+		if err := editCaptionOrText(bot, chatID, msgID, "Payment cancelled.", tgbotapi.InlineKeyboardMarkup{}); err != nil {
 			logger.Log.Errorf("edit payment cancel error: %v", err)
 		}
 	}
