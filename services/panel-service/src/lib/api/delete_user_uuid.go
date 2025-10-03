@@ -28,7 +28,7 @@ func DeleteUserByUuid(token, uuid string) (bool, error) {
 	}
 	defer resp.Body.Close()
 
-	respBody := make([]byte, 256)
+	respBody := make([]byte, 512)
 	resp.Body.Read(respBody)
 	if resp.StatusCode != 200 {
 		return false, errors.New(string(respBody))

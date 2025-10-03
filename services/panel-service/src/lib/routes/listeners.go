@@ -74,18 +74,19 @@ func ListenDeleteUser(w http.ResponseWriter, r *http.Request) {
 	uuids, err := panel_api.GetUserUiid(os.Getenv("REMNAPANEL_API_TOKEN"),userData)
 	if err!=nil{
 		logger.Log.Error("Error trying to get user uuid" + err.Error())
-		http.Error(w, "bad request", http.StatusBadRequest)
+		http.Error(w, "bad request", http.StatusInternalServerError)
 		return
 	}
 
 	isDeleted, err := panel_api.DeleteUserByUuid(os.Getenv("REMNAPANEL_API_TOKEN"), uuids[0])
 	if err != nil {
 		logger.Log.Error("Error trying to delete user " + err.Error())
-		http.Error(w, "bad request", http.StatusBadRequest)
+		http.Error(w, "bad request", http.StatusInternalServerError)
 		return
 	}
-	if isDeleted{
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(200)
-	}
+
+	w.WriteHeader(200)
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(fmt.Sprintf(`{"response": "isDeleted": %b}`, isDeleted)))
+	
 }
