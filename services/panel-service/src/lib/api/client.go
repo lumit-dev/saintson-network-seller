@@ -4,4 +4,5 @@ import (
 	"net/http"
 )
 
-var panelHttpCli *http.Client
+var panelHttpCli = &http.Client{}
+	

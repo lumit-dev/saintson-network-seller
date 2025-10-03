@@ -6,8 +6,8 @@ import (
 )
 
 func Listen() {
-	logger.Log.Info("starting server on port 8081")
-	err := http.ListenAndServe(":8081", routes())
+	logger.Log.Info("starting server on port 8082")
+	err := http.ListenAndServe(":8082", routes())
 	if err != nil {
 		logger.Log.Fatal(err)
 	}

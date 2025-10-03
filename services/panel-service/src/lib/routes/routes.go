@@ -8,5 +8,6 @@ func routes() *gorilla_mux.Router {
 	mux := gorilla_mux.NewRouter()
 
 	mux.HandleFunc("/api/new_user", ListenCreateNewUser).Methods("POST")
+	mux.HandleFunc("/api/delete_user", ListenDeleteUser).Methods("DELETE")
 	return mux
 }
