@@ -1,4 +1,4 @@
-module tgcli
+module tg-bot
 
 go 1.24.2
 
