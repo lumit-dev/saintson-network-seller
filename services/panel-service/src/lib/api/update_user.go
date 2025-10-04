@@ -7,13 +7,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-
 	api_models "panel-service/src/lib/api/models"
 
 	models "github.com/saintson-network-seller/additions/models"
 )
 
-func CreateNewUser(token string, user models.User) (*api_models.CreateUserResponse, error) {
+func UpdateUser(user models.User, uuid, token string)(*api_models.CreateUserResponse, error){
 	apiUsersUrl := fmt.Sprintf("%v/%v", adminPanelUrl, "api/users")
 
 	reqBody, err := json.Marshal(user)
@@ -21,7 +20,7 @@ func CreateNewUser(token string, user models.User) (*api_models.CreateUserRespon
 		return nil, errors.New("failed to encode user to JSON")
 	}
 
-	req, err := http.NewRequest("POST", apiUsersUrl, bytes.NewReader(reqBody))
+	req, err := http.NewRequest("PATCH", apiUsersUrl, bytes.NewReader(reqBody))
 
 	if err != nil {
 		return nil, err
@@ -37,16 +36,17 @@ func CreateNewUser(token string, user models.User) (*api_models.CreateUserRespon
 	
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err:=  io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
 
 	resp.Body.Read(respBody)
-	if resp.StatusCode != http.StatusCreated {
+	if resp.StatusCode != http.StatusOK {
 		return nil, errors.New(string(respBody))
 	}
 	respBody = bytes.Trim(respBody, "\x00")
+	
 	var respUser api_models.CreateUserResponse
 	err = json.Unmarshal(respBody, &respUser)
 	if err != nil {
@@ -54,4 +54,5 @@ func CreateNewUser(token string, user models.User) (*api_models.CreateUserRespon
 	}
 
 	return &respUser, nil
+
 }
