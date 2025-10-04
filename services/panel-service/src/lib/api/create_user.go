@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 
 	api_models "panel-service/src/lib/api/models"
@@ -36,7 +37,11 @@ func CreateNewUser(token string, user models.User) (*api_models.CreateUserRespon
 	
 	defer resp.Body.Close()
 
-	respBody := make([]byte, 2048)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
 	resp.Body.Read(respBody)
 	if resp.StatusCode != http.StatusCreated {
 		return nil, errors.New(string(respBody))

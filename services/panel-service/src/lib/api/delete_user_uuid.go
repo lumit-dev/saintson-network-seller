@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	api_models "panel-service/src/lib/api/models"
 )
@@ -28,7 +29,11 @@ func DeleteUserByUuid(token, uuid string) (bool, error) {
 	}
 	defer resp.Body.Close()
 
-	respBody := make([]byte, 512)
+	respBody , err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false, err
+	}
+
 	resp.Body.Read(respBody)
 	if resp.StatusCode != 200 {
 		return false, errors.New(string(respBody))

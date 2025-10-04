@@ -12,44 +12,47 @@ import (
 	models "github.com/saintson-network-seller/additions/models"
 )
 
-func GetUserUiid(token string, user models.User) ([]string,error){
-	apiUsersUrl := fmt.Sprintf("%v/%v/%v", adminPanelUrl, "api/users/by-telegram-id", user.TelegramId)
+func UpdateUser(user models.User, uuid, token string)(*api_models.CreateUserResponse, error){
+	apiUsersUrl := fmt.Sprintf("%v/%v", adminPanelUrl, "api/users")
 
-	req, err := http.NewRequest("GET", apiUsersUrl, nil)
+	reqBody, err := json.Marshal(user)
+	if err != nil {
+		return nil, errors.New("failed to encode user to JSON")
+	}
+
+	req, err := http.NewRequest("PATCH", apiUsersUrl, bytes.NewReader(reqBody))
 
 	if err != nil {
 		return nil, err
 	}
+
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %v", token))
 
 	resp, err := panelHttpCli.Do(req)
-
 	if err != nil {
 		return nil, err
 	}
+	
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err:=  io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
 
+	resp.Body.Read(respBody)
 	if resp.StatusCode != http.StatusOK {
 		return nil, errors.New(string(respBody))
 	}
-
 	respBody = bytes.Trim(respBody, "\x00")
-	var uuidResp api_models.UuidResponse
-	err = json.Unmarshal(respBody, &uuidResp)
+	
+	var respUser api_models.CreateUserResponse
+	err = json.Unmarshal(respBody, &respUser)
 	if err != nil {
 		return nil, err
 	}
 
+	return &respUser, nil
 
-	uuids := make([]string, len(uuidResp.Response))
-	for ind, respUser := range uuidResp.Response {
-		uuids[ind] = respUser.Uuid
-	}
-
-	return uuids, nil
 }
