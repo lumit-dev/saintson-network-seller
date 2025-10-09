@@ -6,7 +6,7 @@ import (
 )
 
 type UIContext interface {
-	Message() tgapi.MessageConfig
+	Message() (tgapi.MessageConfig, error)
 	Transit(update tgapi.Update) UIContext
 }
 

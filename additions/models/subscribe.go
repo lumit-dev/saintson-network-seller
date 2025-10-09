@@ -1,7 +1,7 @@
 package models
 
 type Subscribe struct {
-	ExparedTo   string
+	ExpireAt    string
 	DeviceLimit int
 	Link        string
 	Status      string

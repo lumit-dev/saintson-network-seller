@@ -2,6 +2,7 @@ package botapi
 
 import (
 	"os"
+	"sync"
 
 	uicontext "tg-bot/src/lib/botapi/uicontext"
 
@@ -57,36 +58,48 @@ func getFromResponse(update tgapi.Update) *fromResponse {
 }
 
 func (cli Client) Run() {
-	var curr uicontext.UIContext = uicontext.NewHomeContext()
+	currContext := make(chan uicontext.UIContext, 128)
+	currContext <- uicontext.NewHomeContext()
 	updateChan := cli.getUpdateChan()
 
 	var delMsgCfg tgapi.DeleteMessageConfig
 
+	wg := &sync.WaitGroup{}
 	for update := range updateChan {
-		curr = curr.Transit(update)
-		if curr == nil {
-			logger.Log.Errorf("bad transition, back to home")
-			curr = uicontext.NewHomeContext()
-		}
-		cli.api.Request(delMsgCfg)
+		wg.Add(1)
+		go func(ctx uicontext.UIContext) {
+			curr := ctx.Transit(update)
+			if curr == nil {
+				logger.Log.Errorf("bad transition, back to home")
+				curr = uicontext.NewHomeContext()
+			}
+			cli.api.Request(delMsgCfg)
 
-		resp := getFromResponse(update)
-		if resp == nil {
-			logger.Log.Errorf("get id from update error: %v", update)
-			continue
-		}
+			resp := getFromResponse(update)
+			if resp == nil {
+				logger.Log.Errorf("get id from update error: %v", update)
+				return
+			}
 
-		msgCfg := curr.Message()
-		msgCfg.ChatID = resp.Id
-		msgHandler, err := cli.api.Send(msgCfg)
-		if err != nil {
-			logger.Log.Errorf("message send error: %v", err)
-		}
+			msgCfg, err := curr.Message()
+			if err != nil {
+				logger.Log.Errorf("build message error: %v", err)
+			}
 
-		delMsgCfg = tgapi.NewDeleteMessage(resp.Id, msgHandler.MessageID)
+			msgCfg.ChatID = resp.Id
+			msgHandler, err := cli.api.Send(msgCfg)
+			if err != nil {
+				logger.Log.Errorf("message send error: %v", err)
+			}
 
-		logger.Log.Infof("start handle new message")
+			delMsgCfg = tgapi.NewDeleteMessage(resp.Id, msgHandler.MessageID)
+
+			logger.Log.Infof("start handle new message")
+			currContext <- curr
+		}(<-currContext)
 	}
+
+	wg.Wait()
 	logger.Log.Info("end of context loop")
 }
 

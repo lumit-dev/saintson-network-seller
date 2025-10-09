@@ -5,42 +5,32 @@ import (
 	lo "github.com/samber/lo"
 )
 
-type HomeContext struct {
+type NotifyContext struct {
 	keyboard [][]contextNode
+	err      error
+	msg      string
 }
 
-func newHomeContextNode() contextNode {
-	return contextNode{
-		Name: "home",
-		Transition: func(any) UIContext {
-			return NewHomeContext()
-		},
-	}
-}
-
-func NewHomeContext() *HomeContext {
-	return &HomeContext{
+func NewNotifyContext(msg string, err error) *NotifyContext {
+	return &NotifyContext{
+		err: err,
+		msg: msg,
 		keyboard: [][]contextNode{{
-			contextNode{
-				Name: "subscribes",
-				Transition: func(id any) UIContext {
-					return NewSubListContext(id.(int64))
-				},
-			}},
-		},
+			newHomeContextNode(),
+		}},
 	}
 }
 
-func (ctx *HomeContext) Message() (tgapi.MessageConfig, error) {
+func (ctx *NotifyContext) Message() (tgapi.MessageConfig, error) {
 	msgCfg := tgapi.MessageConfig{}
-	msgCfg.Text = "choose option"
+	msgCfg.Text = ctx.msg
 	msgCfg.ReplyMarkup =
 		tgapi.NewInlineKeyboardMarkup(lo.Map(ctx.keyboard, nodeSliceToRow)...)
 
-	return msgCfg, nil
+	return msgCfg, ctx.err
 }
 
-func (ctx *HomeContext) Transit(update tgapi.Update) UIContext {
+func (ctx *NotifyContext) Transit(update tgapi.Update) UIContext {
 	flatKeyboard := lo.Flatten(ctx.keyboard)
 
 	if update.CallbackQuery != nil {

@@ -3,6 +3,8 @@ package ui_context
 import (
 	"fmt"
 
+	panelcli "tg-bot/src/lib/panel-server-cli"
+
 	models "github.com/saintson-network-seller/additions/models"
 
 	tgapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -20,15 +22,21 @@ func NewSubContext(subscribe models.Subscribe) *SubContext {
 	keyboard := [][]contextNode{
 		{
 			{
-				Name: "cancel",
+				Name: "delete",
 				Transition: func(any) UIContext {
-					return NewSubCancelContext(subscribe)
+					cli := panelcli.NewClient()
+					isDeleted := cli.DeleteSubscribe(subscribe.Username)
+					if isDeleted != nil {
+						return NewNotifyContext("Cannot delete this user, something wrong, try later", isDeleted)
+					}
+					return NewNotifyContext("User was successfully delete", nil)
 				},
 			},
 			{
 				Name: "change device limit",
 				Transition: func(telegramId any) UIContext {
-					return NewChangeDeviceLimitMenuContext(telegramId.(int64), subscribe)
+					// return NewChangeDeviceLimitMenuContext(telegramId.(int64), subscribe)
+					return NewHomeContext()
 				},
 			},
 		},
@@ -43,12 +51,12 @@ func NewSubContext(subscribe models.Subscribe) *SubContext {
 	}
 }
 
-func (ctx *SubContext) Message() tgapi.MessageConfig {
+func (ctx *SubContext) Message() (tgapi.MessageConfig, error) {
 	messageData := fmt.Sprintf(
 		"status: %v\nlink: %v\nexpared to: %v\ndevice limit: %v\n",
 		ctx.subscribe.Status,
 		ctx.subscribe.Link,
-		ctx.subscribe.ExparedTo,
+		ctx.subscribe.ExpireAt,
 		ctx.subscribe.DeviceLimit,
 	)
 
@@ -58,7 +66,7 @@ func (ctx *SubContext) Message() tgapi.MessageConfig {
 	msgCfg.ReplyMarkup =
 		tgapi.NewInlineKeyboardMarkup(lo.Map(ctx.keyboard, nodeSliceToRow)...)
 
-	return msgCfg
+	return msgCfg, nil
 }
 
 func (ctx *SubContext) Transit(update tgapi.Update) UIContext {

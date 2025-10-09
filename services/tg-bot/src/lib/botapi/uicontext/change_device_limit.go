@@ -10,56 +10,28 @@ import (
 )
 
 type ChangeDeviceLimitContext struct {
-	keyboard    [][]contextNode
-	telegramId  int64
-	deviceLimit string
-	subscribe   models.Subscribe
+	user     models.User
+	keyboard [][]contextNode
 }
 
-func NewChangeDeviceLimitContext(telegramId int64, subscribe models.Subscribe, deviceLimit string) *ChangeDeviceLimitContext {
-	keyboard := [][]contextNode{
-		{
-			contextNode{
-				Name: "show all",
-				Transition: func(any) UIContext {
-					return NewSubListContext(telegramId)
-				},
-			},
-		},
-		[]contextNode{newHomeContextNode()},
-	}
+func NewChangeDeviceLimitContext(user models.User) *ChangeDeviceLimitContext {
+	keyboard := [][]contextNode{[]contextNode{newHomeContextNode()}}
 
 	return &ChangeDeviceLimitContext{
-		keyboard:    keyboard,
-		deviceLimit: deviceLimit,
-		subscribe:   subscribe,
-		telegramId:  telegramId,
+		keyboard: keyboard,
+		user:     user,
 	}
 }
 
-func (ctx *ChangeDeviceLimitContext) Message() tgapi.MessageConfig {
+func (ctx *ChangeDeviceLimitContext) Message() (tgapi.MessageConfig, error) {
 	msgCfg := tgapi.MessageConfig{}
 
-	limitValue, err := strconv.Atoi(ctx.deviceLimit)
-	if err != nil {
-		msgCfg.Text = "change limit fail, bad data format, repeat your try NOW:"
-	} else {
-		ctx.subscribe.DeviceLimit = limitValue
+	msgCfg.ReplyMarkup =
+		tgapi.NewInlineKeyboardMarkup(lo.Map(ctx.keyboard, nodeSliceToRow)...)
 
-		// do update
-		updateStatus := true
+	msgCfg.Text = "enter new device limit:"
 
-		if updateStatus {
-			msgCfg.Text = "successfully"
-		} else {
-			msgCfg.Text = "update subscribe fail, retry later"
-		}
-
-		msgCfg.ReplyMarkup =
-			tgapi.NewInlineKeyboardMarkup(lo.Map(ctx.keyboard, nodeSliceToRow)...)
-	}
-
-	return msgCfg
+	return msgCfg, nil
 }
 
 func (ctx *ChangeDeviceLimitContext) Transit(update tgapi.Update) UIContext {
@@ -72,10 +44,20 @@ func (ctx *ChangeDeviceLimitContext) Transit(update tgapi.Update) UIContext {
 			}
 		}
 	} else if update.Message != nil {
-		return NewChangeDeviceLimitContext(ctx.telegramId, ctx.subscribe, update.Message.Text)
+		return NewUpdateUserContext(update.Message.Text, ctx.user, validateDeviceLimitChanges)
 	} else {
 		return ctx
 	}
 
 	return nil
+}
+
+func validateDeviceLimitChanges(userInput string, user *models.User) bool {
+	limitValue, err := strconv.Atoi(userInput)
+	if err != nil {
+		return false
+	}
+
+	user.DeviceLimit = limitValue
+	return true
 }
