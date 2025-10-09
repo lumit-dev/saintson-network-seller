@@ -23,28 +23,33 @@ func ListenCreateNewUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var userData models.User
-	if err := json.Unmarshal(body, &userData); err != nil {
+	var user models.User
+	if err := json.Unmarshal(body, &user); err != nil {
 		logger.Log.Error("ListenCreateNewUser Error parsing JSON: " + err.Error())
 		http.Error(w, "Invalid JSON format", http.StatusBadRequest)
 		return
 	}
 
-	response, err := panel_api.CreateNewUser(os.Getenv("REMNAPANEL_API_TOKEN"), userData)
+	if len(user.Squads) == 0 {
+		user.Squads = []string{"efe46dba-59c4-4ea3-8665-6118353f2d44"}
+	}
+
+	response, err := panel_api.CreateNewUser(os.Getenv("REMNAPANEL_API_TOKEN"), user)
 
 	if err != nil {
 		w.WriteHeader(999)
 		logger.Log.Error(fmt.Sprintf("ListenCreateNewUser user creation error: %v", err.Error()))
-		w.Write([]byte(fmt.Sprintf("{description:%v}", err.Error())))
+		w.Write(fmt.Appendf([]byte{}, `{"description":"%v"}`, err.Error()))
 		return
 	}
 	logger.Log.Info(fmt.Sprintf("ListenCreateNewUser user creation success: %+v", *response))
 
 	subscribe := models.Subscribe{
-		ExparedTo: response.Response.ExpireAt,
-		DeviceLimit:response.Response.HwidDeviceLimit,
-		Link:   response.Response.SubscriptionUrl,
-		Status: response.Response.Status,
+		Username:    response.Response.Username,
+		ExpireAt:    response.Response.ExpireAt,
+		DeviceLimit: response.Response.HwidDeviceLimit,
+		Link:        response.Response.SubscriptionUrl,
+		Status:      response.Response.Status,
 	}
 
 	subscribeData, err := json.Marshal(&subscribe)
@@ -71,14 +76,15 @@ func ListenDeleteUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid JSON format", http.StatusBadRequest)
 		return
 	}
-	uuids, err := panel_api.GetUserUiid(os.Getenv("REMNAPANEL_API_TOKEN"),userData)
-	if err!=nil{
+
+	user, err := panel_api.GetUserByUsername(os.Getenv("REMNAPANEL_API_TOKEN"), userData)
+	if err != nil {
 		logger.Log.Error("ListenDeleteUser Error trying to get user uuid" + err.Error())
 		http.Error(w, "bad request", http.StatusInternalServerError)
 		return
 	}
 
-	isDeleted, err := panel_api.DeleteUserByUuid(os.Getenv("REMNAPANEL_API_TOKEN"), uuids[0])
+	isDeleted, err := panel_api.DeleteUserByUuid(os.Getenv("REMNAPANEL_API_TOKEN"), user.Uuid)
 	if err != nil {
 		logger.Log.Error("ListenDeleteUser error trying to delete user " + err.Error())
 		http.Error(w, "bad request", http.StatusInternalServerError)
@@ -88,10 +94,10 @@ func ListenDeleteUser(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(200)
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(fmt.Sprintf(`{"response": "isDeleted": %v}`, isDeleted)))
-	
+	w.Write(fmt.Appendf([]byte{}, `{"response": {"isDeleted": %v}}`, isDeleted))
 }
-func ListenUpdateUser(w http.ResponseWriter, r *http.Request){
+
+func ListenUpdateUser(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
 	body, err := io.ReadAll(r.Body)
@@ -107,28 +113,29 @@ func ListenUpdateUser(w http.ResponseWriter, r *http.Request){
 		http.Error(w, "Invalid JSON format", http.StatusBadRequest)
 		return
 	}
-	
-	uuids, err := panel_api.GetUserUiid(os.Getenv("REMNAPANEL_API_TOKEN"),userData)
+
+	users, err := panel_api.GetUsersByTgId(os.Getenv("REMNAPANEL_API_TOKEN"), userData)
 	if err != nil {
 		logger.Log.Error("ListenUpdateUser error trying to get user uuid" + err.Error())
 		http.Error(w, "bad request", http.StatusInternalServerError)
 		return
 	}
 
-	response, err := panel_api.UpdateUser(userData, uuids[0],os.Getenv("REMNAPANEL_API_TOKEN"))
+	response, err := panel_api.UpdateUser(userData, users[0].Uuid, os.Getenv("REMNAPANEL_API_TOKEN"))
 	if err != nil {
 		logger.Log.Error("ListenUpdateUser error updating user" + err.Error())
-		http.Error(w,"something went wrong ", http.StatusInternalServerError)
+		http.Error(w, "something went wrong ", http.StatusInternalServerError)
 		return
 	}
 
 	logger.Log.Info(fmt.Sprintf("ListenUpdateUser user update success: %+v", *response))
 
 	subscribe := models.Subscribe{
-		ExparedTo: response.Response.ExpireAt,
-		DeviceLimit:response.Response.HwidDeviceLimit,
-		Link:   response.Response.SubscriptionUrl,
-		Status: response.Response.Status,
+		Username:    response.Response.Username,
+		ExpireAt:    response.Response.ExpireAt,
+		DeviceLimit: response.Response.HwidDeviceLimit,
+		Link:        response.Response.SubscriptionUrl,
+		Status:      response.Response.Status,
 	}
 
 	subscribeData, err := json.Marshal(&subscribe)
@@ -137,5 +144,48 @@ func ListenUpdateUser(w http.ResponseWriter, r *http.Request){
 
 	w.WriteHeader(http.StatusOK)
 	w.Write(subscribeData)
+}
 
+func ListenGetUsersByTgId(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		logger.Log.Error("ListenGetUsersByTgId error reading request body: " + err.Error())
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	var userData models.User
+	if err := json.Unmarshal(body, &userData); err != nil {
+		logger.Log.Error("ListenGetUsersByTgId error parsing JSON: " + err.Error())
+		http.Error(w, "invalid JSON format", http.StatusBadRequest)
+		return
+	}
+
+	users, err := panel_api.GetUsersByTgId(os.Getenv("REMNAPANEL_API_TOKEN"), userData)
+	if err != nil {
+		logger.Log.Error("ListenGetUsersByTgId error trying to get user uuid" + err.Error())
+		http.Error(w, "bad request", http.StatusInternalServerError)
+		return
+	}
+	logger.Log.Info("get users successfully")
+
+	subscribes := make([]models.Subscribe, len(users))
+	for ind, user := range users {
+		subscribes[ind] = models.Subscribe{
+			Username:    user.Username,
+			ExpireAt:    user.ExpireAt,
+			DeviceLimit: user.DeviceLimit,
+			Link:        user.Link,
+			Status:      user.Status,
+		}
+	}
+
+	subscribeData, err := json.Marshal(&subscribes)
+
+	w.Header().Set("Content-Type", "application/json")
+
+	w.WriteHeader(http.StatusOK)
+	w.Write(subscribeData)
 }

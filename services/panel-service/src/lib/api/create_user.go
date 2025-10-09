@@ -34,7 +34,7 @@ func CreateNewUser(token string, user models.User) (*api_models.CreateUserRespon
 	if err != nil {
 		return nil, err
 	}
-	
+
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
