@@ -57,12 +57,14 @@ func getFromResponse(update tgapi.Update) *fromResponse {
 	}
 }
 
+const contextBuffSize = 1024
+
 func (cli Client) Run() {
-	currContext := make(chan uicontext.UIContext, 128)
+	currContext := make(chan uicontext.UIContext, contextBuffSize)
 	currContext <- uicontext.NewHomeContext()
 	updateChan := cli.getUpdateChan()
 
-	var delMsgCfg tgapi.DeleteMessageConfig
+	delMsgMap := sync.Map{}
 
 	wg := &sync.WaitGroup{}
 	for update := range updateChan {
@@ -73,12 +75,16 @@ func (cli Client) Run() {
 				logger.Log.Errorf("bad transition, back to home")
 				curr = uicontext.NewHomeContext()
 			}
-			cli.api.Request(delMsgCfg)
 
 			resp := getFromResponse(update)
 			if resp == nil {
 				logger.Log.Errorf("get id from update error: %v", update)
 				return
+			}
+
+			delMsg, isFound := delMsgMap.LoadAndDelete(resp.Id)
+			if isFound {
+				cli.api.Request(delMsg.(tgapi.DeleteMessageConfig))
 			}
 
 			msgCfg, err := curr.Message()
@@ -92,7 +98,7 @@ func (cli Client) Run() {
 				logger.Log.Errorf("message send error: %v", err)
 			}
 
-			delMsgCfg = tgapi.NewDeleteMessage(resp.Id, msgHandler.MessageID)
+			delMsgMap.Store(resp.Id, tgapi.NewDeleteMessage(resp.Id, msgHandler.MessageID))
 
 			logger.Log.Infof("start handle new message")
 			currContext <- curr
