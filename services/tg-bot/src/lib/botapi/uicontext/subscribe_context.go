@@ -14,10 +14,10 @@ import (
 
 type SubContext struct {
 	keyboard  [][]contextNode
-	subscribe models.Subscribe
+	subscribe models.User
 }
 
-func NewSubContext(subscribe models.Subscribe) *SubContext {
+func NewSubContext(subscribe models.User) *SubContext {
 
 	keyboard := [][]contextNode{
 		{
@@ -34,9 +34,8 @@ func NewSubContext(subscribe models.Subscribe) *SubContext {
 			},
 			{
 				Name: "change device limit",
-				Transition: func(telegramId any) UIContext {
-					// return NewChangeDeviceLimitMenuContext(telegramId.(int64), subscribe)
-					return NewHomeContext()
+				Transition: func(tgId any) UIContext {
+					return NewChangeDeviceLimitContext(subscribe)
 				},
 			},
 		},

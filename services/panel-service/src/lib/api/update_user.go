@@ -7,15 +7,24 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	api_models "panel-service/src/lib/api/models"
 
 	models "github.com/saintson-network-seller/additions/models"
 )
 
-func UpdateUser(user models.User, uuid, token string)(*api_models.CreateUserResponse, error){
+func UpdateUser(user models.User, token string, squads []string) (*models.User, error) {
+	type requestType struct {
+		models.User
+		Squads []string `json:"activeInternalSquads"`
+	}
+
 	apiUsersUrl := fmt.Sprintf("%v/%v", adminPanelUrl, "api/users")
 
-	reqBody, err := json.Marshal(user)
+	reqBody, err := json.Marshal(
+		requestType{
+			User:   user,
+			Squads: squads,
+		},
+	)
 	if err != nil {
 		return nil, errors.New("failed to encode user to JSON")
 	}
@@ -33,10 +42,10 @@ func UpdateUser(user models.User, uuid, token string)(*api_models.CreateUserResp
 	if err != nil {
 		return nil, err
 	}
-	
+
 	defer resp.Body.Close()
 
-	respBody, err:=  io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -46,13 +55,16 @@ func UpdateUser(user models.User, uuid, token string)(*api_models.CreateUserResp
 		return nil, errors.New(string(respBody))
 	}
 	respBody = bytes.Trim(respBody, "\x00")
-	
-	var respUser api_models.CreateUserResponse
+
+	type responseType struct {
+		Response models.User `json:"response"`
+	}
+	var respUser responseType
 	err = json.Unmarshal(respBody, &respUser)
 	if err != nil {
 		return nil, err
 	}
 
-	return &respUser, nil
+	return &respUser.Response, nil
 
 }

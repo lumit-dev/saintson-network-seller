@@ -13,6 +13,8 @@ import (
 	models "github.com/saintson-network-seller/additions/models"
 )
 
+var squadUuid string = os.Getenv("REMNAWAVE_SQUAD_UUID")
+
 func ListenCreateNewUser(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
@@ -30,11 +32,7 @@ func ListenCreateNewUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(user.Squads) == 0 {
-		user.Squads = []string{"efe46dba-59c4-4ea3-8665-6118353f2d44"}
-	}
-
-	response, err := panel_api.CreateNewUser(os.Getenv("REMNAPANEL_API_TOKEN"), user)
+	response, err := panel_api.CreateNewUser(os.Getenv("REMNAPANEL_API_TOKEN"), user, []string{squadUuid})
 
 	if err != nil {
 		w.WriteHeader(999)
@@ -44,15 +42,7 @@ func ListenCreateNewUser(w http.ResponseWriter, r *http.Request) {
 	}
 	logger.Log.Info(fmt.Sprintf("ListenCreateNewUser user creation success: %+v", *response))
 
-	subscribe := models.Subscribe{
-		Username:    response.Response.Username,
-		ExpireAt:    response.Response.ExpireAt,
-		DeviceLimit: response.Response.HwidDeviceLimit,
-		Link:        response.Response.SubscriptionUrl,
-		Status:      response.Response.Status,
-	}
-
-	subscribeData, err := json.Marshal(&subscribe)
+	subscribeData, err := json.Marshal(response)
 
 	w.Header().Set("Content-Type", "application/json")
 
@@ -77,9 +67,9 @@ func ListenDeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := panel_api.GetUserByUsername(os.Getenv("REMNAPANEL_API_TOKEN"), userData)
+	user, err := panel_api.GetUserByUsername(os.Getenv("REMNAPANEL_API_TOKEN"), userData.Username)
 	if err != nil {
-		logger.Log.Error("ListenDeleteUser Error trying to get user uuid" + err.Error())
+		logger.Log.Error("ListenDeleteUser Error trying to get user uuid " + err.Error())
 		http.Error(w, "bad request", http.StatusInternalServerError)
 		return
 	}
@@ -107,38 +97,23 @@ func ListenUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var userData models.User
-	if err := json.Unmarshal(body, &userData); err != nil {
+	var user models.User
+	if err := json.Unmarshal(body, &user); err != nil {
 		logger.Log.Error("ListenUpdateUser error parsing JSON: " + err.Error())
 		http.Error(w, "Invalid JSON format", http.StatusBadRequest)
 		return
 	}
 
-	users, err := panel_api.GetUsersByTgId(os.Getenv("REMNAPANEL_API_TOKEN"), userData)
+	response, err := panel_api.UpdateUser(user, os.Getenv("REMNAPANEL_API_TOKEN"), []string{squadUuid})
 	if err != nil {
-		logger.Log.Error("ListenUpdateUser error trying to get user uuid" + err.Error())
-		http.Error(w, "bad request", http.StatusInternalServerError)
-		return
-	}
-
-	response, err := panel_api.UpdateUser(userData, users[0].Uuid, os.Getenv("REMNAPANEL_API_TOKEN"))
-	if err != nil {
-		logger.Log.Error("ListenUpdateUser error updating user" + err.Error())
+		logger.Log.Error("ListenUpdateUser error updating user " + err.Error())
 		http.Error(w, "something went wrong ", http.StatusInternalServerError)
 		return
 	}
 
 	logger.Log.Info(fmt.Sprintf("ListenUpdateUser user update success: %+v", *response))
 
-	subscribe := models.Subscribe{
-		Username:    response.Response.Username,
-		ExpireAt:    response.Response.ExpireAt,
-		DeviceLimit: response.Response.HwidDeviceLimit,
-		Link:        response.Response.SubscriptionUrl,
-		Status:      response.Response.Status,
-	}
-
-	subscribeData, err := json.Marshal(&subscribe)
+	subscribeData, err := json.Marshal(&response)
 
 	w.Header().Set("Content-Type", "application/json")
 
@@ -163,26 +138,15 @@ func ListenGetUsersByTgId(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	users, err := panel_api.GetUsersByTgId(os.Getenv("REMNAPANEL_API_TOKEN"), userData)
+	users, err := panel_api.GetUsersByTgId(os.Getenv("REMNAPANEL_API_TOKEN"), userData.TelegramId)
 	if err != nil {
-		logger.Log.Error("ListenGetUsersByTgId error trying to get user uuid" + err.Error())
+		logger.Log.Error("ListenGetUsersByTgId error trying to get user uuid " + err.Error())
 		http.Error(w, "bad request", http.StatusInternalServerError)
 		return
 	}
 	logger.Log.Info("get users successfully")
 
-	subscribes := make([]models.Subscribe, len(users))
-	for ind, user := range users {
-		subscribes[ind] = models.Subscribe{
-			Username:    user.Username,
-			ExpireAt:    user.ExpireAt,
-			DeviceLimit: user.DeviceLimit,
-			Link:        user.Link,
-			Status:      user.Status,
-		}
-	}
-
-	subscribeData, err := json.Marshal(&subscribes)
+	subscribeData, err := json.Marshal(&users)
 
 	w.Header().Set("Content-Type", "application/json")
 

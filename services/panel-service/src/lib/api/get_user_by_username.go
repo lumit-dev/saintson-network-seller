@@ -8,48 +8,48 @@ import (
 	"io"
 	"net/http"
 
-	api_models "panel-service/src/lib/api/models"
-
 	models "github.com/saintson-network-seller/additions/models"
 )
 
-func GetUserByUsername(token string, user models.User) (api_models.UserSubPair, error) {
-	apiUsersUrl := fmt.Sprintf("%v/%v/%v", adminPanelUrl, "api/users/by-username", user.Username)
+func GetUserByUsername(token string, username string) (models.User, error) {
+	apiUsersUrl := fmt.Sprintf("%v/%v/%v", adminPanelUrl, "api/users/by-username", username)
 
 	req, err := http.NewRequest("GET", apiUsersUrl, nil)
 
+	user := models.User{}
 	if err != nil {
-		return api_models.UserSubPair{}, err
+		return user, err
 	}
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %v", token))
 
 	resp, err := panelHttpCli.Do(req)
 
 	if err != nil {
-		return api_models.UserSubPair{}, err
+		return user, err
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return api_models.UserSubPair{}, err
+		return user, err
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return api_models.UserSubPair{}, errors.New(string(respBody))
+		return user, errors.New(string(respBody))
 	}
 
 	respBody = bytes.Trim(respBody, "\x00")
 
-	type GetByTgResponse struct {
-		Response api_models.UserSubPair `json:"response"`
+	type responseType struct {
+		Response models.User `json:"response"`
 	}
 
-	var res GetByTgResponse
+	var res responseType
 	err = json.Unmarshal(respBody, &res)
 	if err != nil {
-		return api_models.UserSubPair{}, err
+		return user, err
 	}
+	user = res.Response
 
-	return res.Response, nil
+	return user, nil
 }

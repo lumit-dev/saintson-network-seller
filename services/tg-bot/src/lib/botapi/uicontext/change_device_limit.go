@@ -3,6 +3,8 @@ package ui_context
 import (
 	"strconv"
 
+	panelcli "tg-bot/src/lib/panel-server-cli"
+
 	models "github.com/saintson-network-seller/additions/models"
 
 	tgapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -10,26 +12,83 @@ import (
 )
 
 type ChangeDeviceLimitContext struct {
-	user     models.User
-	keyboard [][]contextNode
+	userInput string
+	user      models.User
+	keyboard  [][]contextNode
 }
 
 func NewChangeDeviceLimitContext(user models.User) *ChangeDeviceLimitContext {
-	keyboard := [][]contextNode{[]contextNode{newHomeContextNode()}}
 
 	return &ChangeDeviceLimitContext{
-		keyboard: keyboard,
-		user:     user,
+		userInput: "",
+		user:      user,
 	}
 }
 
 func (ctx *ChangeDeviceLimitContext) Message() (tgapi.MessageConfig, error) {
+	ctx.keyboard = [][]contextNode{{newHomeContextNode()}}
 	msgCfg := tgapi.MessageConfig{}
+
+	if ctx.userInput == "" {
+		msgCfg.ReplyMarkup =
+			tgapi.NewInlineKeyboardMarkup(lo.Map(ctx.keyboard, nodeSliceToRow)...)
+
+		msgCfg.Text = "enter new device limit:"
+		return msgCfg, nil
+	}
+
+	updatedUser, isValidInput := validateDeviceLimitChanges(ctx.userInput, ctx.user)
+	if !isValidInput {
+		msgCfg.Text = "Incorrect input format, retry NOW:"
+		ctx.keyboard = [][]contextNode{
+			{
+				contextNode{
+					Name: "cancel",
+					Transition: func(any) UIContext {
+						return NewHomeContext()
+					},
+				},
+			},
+		}
+
+		msgCfg.ReplyMarkup =
+			tgapi.NewInlineKeyboardMarkup(lo.Map(ctx.keyboard, nodeSliceToRow)...)
+
+		return msgCfg, nil
+	}
+
+	msgCfg.Text = "go to pay"
+
+	ctx.keyboard = [][]contextNode{
+		{
+			contextNode{
+				Name: "go to pay",
+				Transition: func(any) UIContext {
+					cost := "828482583248 RUB"
+					panel := panelcli.NewClient()
+
+					return NewPaymentContext(cost,
+						newPaymentReason(
+							func() (UIContext, error) {
+								subPtr, err := panel.UpdateSubscribe(updatedUser)
+								if err != nil {
+									return NewHomeContext(), err
+								}
+								return NewSubContext(*subPtr), nil
+							},
+							func() error {
+								_, err := panel.UpdateSubscribe(ctx.user)
+								return err
+							},
+						),
+					)
+				},
+			},
+		},
+	}
 
 	msgCfg.ReplyMarkup =
 		tgapi.NewInlineKeyboardMarkup(lo.Map(ctx.keyboard, nodeSliceToRow)...)
-
-	msgCfg.Text = "enter new device limit:"
 
 	return msgCfg, nil
 }
@@ -44,7 +103,8 @@ func (ctx *ChangeDeviceLimitContext) Transit(update tgapi.Update) UIContext {
 			}
 		}
 	} else if update.Message != nil {
-		return NewUpdateUserContext(update.Message.Text, ctx.user, validateDeviceLimitChanges)
+		ctx.userInput = update.Message.Text
+		return ctx
 	} else {
 		return ctx
 	}
@@ -52,12 +112,13 @@ func (ctx *ChangeDeviceLimitContext) Transit(update tgapi.Update) UIContext {
 	return nil
 }
 
-func validateDeviceLimitChanges(userInput string, user *models.User) bool {
+func validateDeviceLimitChanges(userInput string, user models.User) (models.User, bool) {
 	limitValue, err := strconv.Atoi(userInput)
-	if err != nil {
-		return false
+	if err != nil || limitValue < 2 {
+		return user, false
 	}
 
-	user.DeviceLimit = limitValue
-	return true
+	updatedUser := user
+	updatedUser.DeviceLimit = limitValue
+	return updatedUser, true
 }

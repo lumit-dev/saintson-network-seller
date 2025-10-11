@@ -8,13 +8,11 @@ import (
 	"io"
 	"net/http"
 
-	api_models "panel-service/src/lib/api/models"
-
 	models "github.com/saintson-network-seller/additions/models"
 )
 
-func GetUsersByTgId(token string, user models.User) ([]api_models.UserSubPair, error) {
-	apiUsersUrl := fmt.Sprintf("%v/%v/%v", adminPanelUrl, "api/users/by-telegram-id", user.TelegramId)
+func GetUsersByTgId(token string, tgId int64) ([]models.User, error) {
+	apiUsersUrl := fmt.Sprintf("%v/%v/%v", adminPanelUrl, "api/users/by-telegram-id", tgId)
 
 	req, err := http.NewRequest("GET", apiUsersUrl, nil)
 
@@ -31,7 +29,7 @@ func GetUsersByTgId(token string, user models.User) ([]api_models.UserSubPair, e
 	defer resp.Body.Close()
 
 	if resp.StatusCode == 404 {
-		return []api_models.UserSubPair{}, nil
+		return []models.User{}, nil
 	}
 
 	respBody, err := io.ReadAll(resp.Body)
@@ -45,11 +43,11 @@ func GetUsersByTgId(token string, user models.User) ([]api_models.UserSubPair, e
 
 	respBody = bytes.Trim(respBody, "\x00")
 
-	type GetByTgResponse struct {
-		Response []api_models.UserSubPair `json:"response"`
+	type responseType struct {
+		Response []models.User `json:"response"`
 	}
 
-	var res GetByTgResponse
+	var res responseType
 	err = json.Unmarshal(respBody, &res)
 	if err != nil {
 		return nil, err

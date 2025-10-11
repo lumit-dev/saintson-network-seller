@@ -73,7 +73,7 @@ func (ctx *SubListContext) Message() (tgapi.MessageConfig, error) {
 		return msgCfg, nil
 	}
 
-	ctx.keyboard = append(lo.Map(subscribes, func(subscribe models.Subscribe, _ int) []contextNode {
+	ctx.keyboard = append(lo.Map(subscribes, func(subscribe models.User, _ int) []contextNode {
 		return []contextNode{
 			{
 				Name: fmt.Sprintf("%v | %v",
@@ -108,7 +108,8 @@ func (ctx *SubListContext) Transit(update tgapi.Update) UIContext {
 					Username:    update.CallbackQuery.From.UserName,
 					TelegramId:  update.CallbackQuery.From.ID,
 					ExpireAt:    currentDate,
-					DeviceLimit: 1,
+					DeviceLimit: 2,
+					Status:      "ACTIVE",
 				})
 			}
 		}

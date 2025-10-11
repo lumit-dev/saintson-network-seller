@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	api_models "panel-service/src/lib/api/models"
 )
 
 func DeleteUserByUuid(token, uuid string) (bool, error) {
@@ -29,7 +28,7 @@ func DeleteUserByUuid(token, uuid string) (bool, error) {
 	}
 	defer resp.Body.Close()
 
-	respBody , err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return false, err
 	}
@@ -39,7 +38,14 @@ func DeleteUserByUuid(token, uuid string) (bool, error) {
 		return false, errors.New(string(respBody))
 	}
 	respBody = bytes.Trim(respBody, "\x00")
-	var delResp api_models.DeleteResponse
+
+	type responseType struct {
+		Response struct {
+			IsDeleted bool `json:"isDeleted"`
+		} `json:"response"`
+	}
+
+	var delResp responseType
 	err = json.Unmarshal(respBody, &delResp)
 	if err != nil {
 		return false, err
