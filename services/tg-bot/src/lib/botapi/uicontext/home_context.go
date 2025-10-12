@@ -1,4 +1,4 @@
-package ui_context
+package uicontext
 
 import (
 	tgapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -6,11 +6,11 @@ import (
 )
 
 type HomeContext struct {
-	keyboard [][]contextNode
+	keyboard [][]ContextNode
 }
 
-func newHomeContextNode() contextNode {
-	return contextNode{
+func newHomeContextNode() ContextNode {
+	return ContextNode{
 		Name: "home",
 		Transition: func(any) UIContext {
 			return NewHomeContext()
@@ -20,8 +20,8 @@ func newHomeContextNode() contextNode {
 
 func NewHomeContext() *HomeContext {
 	return &HomeContext{
-		keyboard: [][]contextNode{{
-			contextNode{
+		keyboard: [][]ContextNode{{
+			ContextNode{
 				Name: "subscribes",
 				Transition: func(id any) UIContext {
 					return NewSubListContext(id.(int64))
@@ -31,13 +31,15 @@ func NewHomeContext() *HomeContext {
 	}
 }
 
-func (ctx *HomeContext) Message() (tgapi.MessageConfig, error) {
+func (ctx *HomeContext) Message(chatId int64) ([]tgapi.Chattable, error) {
 	msgCfg := tgapi.MessageConfig{}
+	msgCfg.ChatID = chatId
+
 	msgCfg.Text = "choose option"
 	msgCfg.ReplyMarkup =
 		tgapi.NewInlineKeyboardMarkup(lo.Map(ctx.keyboard, nodeSliceToRow)...)
 
-	return msgCfg, nil
+	return []tgapi.Chattable{msgCfg}, nil
 }
 
 func (ctx *HomeContext) Transit(update tgapi.Update) UIContext {

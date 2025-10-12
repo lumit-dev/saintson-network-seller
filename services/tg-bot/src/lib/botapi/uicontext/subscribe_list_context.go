@@ -1,4 +1,4 @@
-package ui_context
+package uicontext
 
 import (
 	"fmt"
@@ -14,18 +14,19 @@ import (
 
 type SubListContext struct {
 	telegramId int64
-	keyboard   [][]contextNode
+	keyboard   [][]ContextNode
 }
 
 func NewSubListContext(telegramId int64) *SubListContext {
 	return &SubListContext{
 		telegramId: telegramId,
-		keyboard:   [][]contextNode{{newHomeContextNode()}},
+		keyboard:   [][]ContextNode{{newHomeContextNode()}},
 	}
 }
 
-func (ctx *SubListContext) Message() (tgapi.MessageConfig, error) {
+func (ctx *SubListContext) Message(chatId int64) ([]tgapi.Chattable, error) {
 	msgCfg := tgapi.MessageConfig{}
+	msgCfg.ChatID = chatId
 
 	panel := panelcli.NewClient()
 	subscribes, err := panel.GetSubscribes(ctx.telegramId)
@@ -35,17 +36,15 @@ func (ctx *SubListContext) Message() (tgapi.MessageConfig, error) {
 			tgapi.NewInlineKeyboardMarkup(lo.Map(ctx.keyboard, nodeSliceToRow)...)
 		msgCfg.Text = "something wrong, try later"
 
-		return msgCfg, err
+		return []tgapi.Chattable{msgCfg}, err
 	}
 
 	if len(subscribes) == 0 {
-		ctx.keyboard = [][]contextNode{
+		ctx.keyboard = [][]ContextNode{
 			{
 				{
 					Name: "add new",
 					Transition: func(user any) UIContext {
-						cost := "210034 RUB"
-
 						pr := newPaymentReason(
 							func() (UIContext, error) {
 								_, err := panel.AddSubscribe(user.(models.User))
@@ -59,7 +58,15 @@ func (ctx *SubListContext) Message() (tgapi.MessageConfig, error) {
 							},
 						)
 
-						return NewPaymentContext(cost, pr)
+						// get product....
+						product := models.Product{
+							OfficialName:   "some name",
+							ShortName:      "some short name",
+							Description:    "some description",
+							AmountCurrency: "RUB",
+							AmountPrice:    100,
+						}
+						return NewPaymentContext(product, pr)
 
 					},
 				},
@@ -70,11 +77,11 @@ func (ctx *SubListContext) Message() (tgapi.MessageConfig, error) {
 			tgapi.NewInlineKeyboardMarkup(lo.Map(ctx.keyboard, nodeSliceToRow)...)
 		msgCfg.Text = "you have not subscribtions, you wana add new?"
 
-		return msgCfg, nil
+		return []tgapi.Chattable{msgCfg}, nil
 	}
 
-	ctx.keyboard = append(lo.Map(subscribes, func(subscribe models.User, _ int) []contextNode {
-		return []contextNode{
+	ctx.keyboard = append(lo.Map(subscribes, func(subscribe models.User, _ int) []ContextNode {
+		return []ContextNode{
 			{
 				Name: fmt.Sprintf("%v | %v",
 					func() string {
@@ -87,13 +94,13 @@ func (ctx *SubListContext) Message() (tgapi.MessageConfig, error) {
 				},
 			},
 		}
-	}), []contextNode{newHomeContextNode()})
+	}), []ContextNode{newHomeContextNode()})
 
 	msgCfg.ReplyMarkup =
 		tgapi.NewInlineKeyboardMarkup(lo.Map(ctx.keyboard, nodeSliceToRow)...)
 	msgCfg.Text = "choose subscribe:"
 
-	return msgCfg, nil
+	return []tgapi.Chattable{msgCfg}, nil
 }
 
 func (ctx *SubListContext) Transit(update tgapi.Update) UIContext {

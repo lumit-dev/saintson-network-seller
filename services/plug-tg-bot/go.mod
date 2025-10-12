@@ -1,11 +1,17 @@
 module plug-tg-bot
 
-go 1.23
+go 1.24.2
 
 require (
+	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 	github.com/google/generative-ai-go v0.15.0
+	github.com/saintson-network-seller/additions v0.0.0
+	github.com/samber/lo v1.52.0
+	github.com/sirupsen/logrus v1.9.3
 	google.golang.org/api v0.197.0
 )
+
+replace github.com/saintson-network-seller/additions => ../../additions
 
 require (
 	cloud.google.com/go v0.116.0 // indirect
@@ -31,9 +37,9 @@ require (
 	golang.org/x/crypto v0.27.0 // indirect
 	golang.org/x/net v0.29.0 // indirect
 	golang.org/x/oauth2 v0.23.0 // indirect
-	golang.org/x/sync v0.8.0 // indirect
+	golang.org/x/sync v0.11.0 // indirect
 	golang.org/x/sys v0.25.0 // indirect
-	golang.org/x/text v0.18.0 // indirect
+	golang.org/x/text v0.22.0 // indirect
 	golang.org/x/time v0.6.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240903143218-8af14fe29dc1 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240903143218-8af14fe29dc1 // indirect

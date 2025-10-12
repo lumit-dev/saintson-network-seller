@@ -1,4 +1,4 @@
-package ui_context
+package uicontext
 
 import (
 	"fmt"
@@ -13,13 +13,13 @@ import (
 )
 
 type SubContext struct {
-	keyboard  [][]contextNode
+	keyboard  [][]ContextNode
 	subscribe models.User
 }
 
 func NewSubContext(subscribe models.User) *SubContext {
 
-	keyboard := [][]contextNode{
+	keyboard := [][]ContextNode{
 		{
 			{
 				Name: "delete",
@@ -50,7 +50,7 @@ func NewSubContext(subscribe models.User) *SubContext {
 	}
 }
 
-func (ctx *SubContext) Message() (tgapi.MessageConfig, error) {
+func (ctx *SubContext) Message(chatId int64) ([]tgapi.Chattable, error) {
 	messageData := fmt.Sprintf(
 		"status: %v\nlink: %v\nexpared to: %v\ndevice limit: %v\n",
 		ctx.subscribe.Status,
@@ -60,12 +60,14 @@ func (ctx *SubContext) Message() (tgapi.MessageConfig, error) {
 	)
 
 	msgCfg := tgapi.MessageConfig{}
+	msgCfg.ChatID = chatId
+
 	msgCfg.Text = messageData
 
 	msgCfg.ReplyMarkup =
 		tgapi.NewInlineKeyboardMarkup(lo.Map(ctx.keyboard, nodeSliceToRow)...)
 
-	return msgCfg, nil
+	return []tgapi.Chattable{msgCfg}, nil
 }
 
 func (ctx *SubContext) Transit(update tgapi.Update) UIContext {

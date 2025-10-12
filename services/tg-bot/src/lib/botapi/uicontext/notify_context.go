@@ -1,4 +1,4 @@
-package ui_context
+package uicontext
 
 import (
 	tgapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -6,7 +6,7 @@ import (
 )
 
 type NotifyContext struct {
-	keyboard [][]contextNode
+	keyboard [][]ContextNode
 	err      error
 	msg      string
 }
@@ -15,19 +15,21 @@ func NewNotifyContext(msg string, err error) *NotifyContext {
 	return &NotifyContext{
 		err: err,
 		msg: msg,
-		keyboard: [][]contextNode{{
+		keyboard: [][]ContextNode{{
 			newHomeContextNode(),
 		}},
 	}
 }
 
-func (ctx *NotifyContext) Message() (tgapi.MessageConfig, error) {
+func (ctx *NotifyContext) Message(chatId int64) ([]tgapi.Chattable, error) {
 	msgCfg := tgapi.MessageConfig{}
+	msgCfg.ChatID = chatId
+
 	msgCfg.Text = ctx.msg
 	msgCfg.ReplyMarkup =
 		tgapi.NewInlineKeyboardMarkup(lo.Map(ctx.keyboard, nodeSliceToRow)...)
 
-	return msgCfg, ctx.err
+	return []tgapi.Chattable{msgCfg}, ctx.err
 }
 
 func (ctx *NotifyContext) Transit(update tgapi.Update) UIContext {

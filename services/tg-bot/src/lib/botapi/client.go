@@ -4,7 +4,6 @@ import (
 	"os"
 	"sync"
 
-	ui_context "tg-bot/src/lib/botapi/uicontext"
 	uicontext "tg-bot/src/lib/botapi/uicontext"
 
 	tgapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -52,13 +51,21 @@ func getFromResponse(update tgapi.Update) *fromResponse {
 			Id:   update.CallbackQuery.From.ID,
 			Data: update.CallbackQuery.Data,
 		}
+	case update.PreCheckoutQuery != nil:
+		return &fromResponse{
+			Id:   update.PreCheckoutQuery.From.ID,
+			Data: update.PreCheckoutQuery.Currency,
+		}
 
+	case update.ShippingQuery != nil:
+		return &fromResponse{
+			Id:   update.ShippingQuery.From.ID,
+			Data: update.ShippingQuery.InvoicePayload,
+		}
 	default:
 		return nil
 	}
 }
-
-const contextBuffSize = 1024
 
 func (cli Client) Run() {
 	updateChan := cli.getUpdateChan()
@@ -79,13 +86,13 @@ func (cli Client) Run() {
 				return
 			}
 
-			var currentContext ui_context.UIContext
+			var currentContext uicontext.UIContext
 
 			value, wasFound := currentContextMap.LoadAndDelete(resp.Id)
 			if wasFound == false {
-				currentContext = ui_context.NewHomeContext()
+				currentContext = uicontext.NewHomeContext()
 			} else {
-				currentContext = value.(ui_context.UIContext)
+				currentContext = value.(uicontext.UIContext)
 			}
 
 			curr := currentContext.Transit(update)
@@ -94,23 +101,28 @@ func (cli Client) Run() {
 				curr = uicontext.NewHomeContext()
 			}
 
-			msgCfg, err := curr.Message()
+			messages, err := curr.Message(resp.Id)
 			if err != nil {
 				logger.Log.Errorf("build message error: %v", err)
 			}
 
 			delMsg, isFound := delMsgMap.LoadAndDelete(resp.Id)
 			if isFound {
-				cli.api.Request(delMsg.(tgapi.DeleteMessageConfig))
+				for _, msg := range delMsg.([]tgapi.DeleteMessageConfig) {
+					cli.api.Request(msg)
+				}
 			}
 
-			msgCfg.ChatID = resp.Id
-			msgHandler, err := cli.api.Send(msgCfg)
-			if err != nil {
-				logger.Log.Errorf("message send error: %v", err)
+			deleteMessages := make([]tgapi.DeleteMessageConfig, len(messages))
+			for msgIndex, msg := range messages {
+				msgHandler, err := cli.api.Send(msg)
+				if err != nil {
+					logger.Log.Errorf("message send error: %v", err)
+				}
+				deleteMessages[msgIndex] = tgapi.NewDeleteMessage(resp.Id, msgHandler.MessageID)
 			}
 
-			delMsgMap.Store(resp.Id, tgapi.NewDeleteMessage(resp.Id, msgHandler.MessageID))
+			delMsgMap.Store(resp.Id, deleteMessages)
 			currentContextMap.Store(resp.Id, curr)
 		}()
 	}

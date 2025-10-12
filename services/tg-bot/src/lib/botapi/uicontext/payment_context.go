@@ -1,16 +1,20 @@
-package ui_context
+package uicontext
 
 import (
-	"fmt"
+	"encoding/json"
+	"os"
+	"strconv"
+
+	models "github.com/saintson-network-seller/additions/models"
+	lo "github.com/samber/lo"
 
 	tgapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	lo "github.com/samber/lo"
 )
 
 type PaymentContext struct {
-	ps       paymentState
+	product  models.Product
 	pr       paymentReson
-	keyboard [][]contextNode
+	keyboard [][]ContextNode
 }
 
 type paymentReson struct {
@@ -37,84 +41,110 @@ func newPaymentReason(action func() (UIContext, error), cancel func() error) pay
 	}
 }
 
-func NewPaymentContext(cost string, pr paymentReson) *PaymentContext {
-	ps := newPaymentState(cost)
-
+func NewPaymentContext(product models.Product, pr paymentReson) *PaymentContext {
 	return &PaymentContext{
-		ps: ps,
-		pr: pr,
-	}
-}
-
-func (ctx *PaymentContext) Message() (tgapi.MessageConfig, error) {
-	msgCfg := tgapi.MessageConfig{}
-
-	nextState, err := ctx.pr.Action()
-
-	if err != nil {
-		ctx.keyboard = [][]contextNode{
+		product: product,
+		pr:      pr,
+		keyboard: [][]ContextNode{
 			{
-				contextNode{
-					Name: "go next",
+				{
+					Name: "cancel",
 					Transition: func(any) UIContext {
-						return nextState
+						pr.Cancel()
+						return NewNotifyContext("canceling successfully", nil)
 					},
-				},
-			},
-		}
-
-		msgCfg.Text = "something wrong, try later"
-		msgCfg.ReplyMarkup =
-			tgapi.NewInlineKeyboardMarkup(lo.Map(ctx.keyboard, nodeSliceToRow)...)
-		return msgCfg, err
-	}
-
-	link := ctx.ps.GetLink()
-
-	paymentStatus := "WAIT"
-	if ctx.ps.Check() {
-		paymentStatus = "DONE"
-	}
-
-	msgCfg.Text = fmt.Sprintf(
-		"!!! ATTENTION: you can cancel money send operation only before payment !!!\n"+
-			"pay now by link: %v\n"+
-			"current payment status: %v",
-		link, paymentStatus,
-	)
-
-	ctx.keyboard = [][]contextNode{
-		{
-			contextNode{
-				Name: "recheck payment status",
-				Transition: func(any) UIContext {
-					if ctx.ps.Check() {
-						return nextState
-					}
-					return ctx
-				},
-			},
-			contextNode{
-				Name: "cancel",
-				Transition: func(any) UIContext {
-					prErr := ctx.pr.Cancel()
-					psErr := ctx.ps.Cancel()
-
-					if prErr != nil || psErr != nil {
-						return NewNotifyContext("canceling done",
-							fmt.Errorf("operation cancle: %v\n"+
-								"payment cancel: %v\n", prErr, psErr))
-					}
-					return NewNotifyContext("canceling done", nil)
 				},
 			},
 		},
 	}
+}
 
-	msgCfg.ReplyMarkup =
+var paymentProviderToken = os.Getenv("TG_BOT_PAYMENT_PROVIDER_TOKEN")
+var paymentCustomerFilename = os.Getenv("TG_BOT_PAYMENT_CUSTOMER_CONFIG_PATH")
+
+func (ctx *PaymentContext) Message(chatId int64) ([]tgapi.Chattable, error) {
+	_, err := ctx.pr.Action()
+	if err != nil {
+		msgCfg := tgapi.MessageConfig{}
+
+		msgCfg.Text = "Something wrong, try later"
+		ctx.keyboard = [][]ContextNode{
+			{newHomeContextNode()},
+		}
+		msgCfg.ReplyMarkup =
+			tgapi.NewInlineKeyboardMarkup(lo.Map(ctx.keyboard, nodeSliceToRow)...)
+
+		msgCfg.ChatID = chatId
+		return []tgapi.Chattable{msgCfg}, err
+	}
+
+	paymentCustomer, err := getPaymentCustomerByFile(paymentCustomerFilename)
+	if err != nil {
+		msgCfg := tgapi.MessageConfig{}
+
+		msgCfg.Text = "Something wrong, try later"
+		ctx.keyboard = [][]ContextNode{
+			{newHomeContextNode()},
+		}
+		msgCfg.ReplyMarkup =
+			tgapi.NewInlineKeyboardMarkup(lo.Map(ctx.keyboard, nodeSliceToRow)...)
+
+		msgCfg.ChatID = chatId
+		return []tgapi.Chattable{msgCfg}, err
+	}
+
+	receipt, err := newYookassaReceiptPaymentJson("asfdsa",
+		models.Amount{
+			Value:    strconv.Itoa(ctx.product.AmountPrice),
+			Currency: ctx.product.AmountCurrency,
+		},
+		*paymentCustomer,
+	)
+
+	if err != nil {
+		msgCfg := tgapi.MessageConfig{}
+
+		msgCfg.Text = "Something wrong, try later"
+		ctx.keyboard = [][]ContextNode{
+			{newHomeContextNode()},
+		}
+		msgCfg.ReplyMarkup =
+			tgapi.NewInlineKeyboardMarkup(lo.Map(ctx.keyboard, nodeSliceToRow)...)
+
+		msgCfg.ChatID = chatId
+		return []tgapi.Chattable{msgCfg}, err
+	}
+
+	msgCfg := tgapi.InvoiceConfig{
+		Title:                     ctx.product.OfficialName,
+		Description:               ctx.product.Description,
+		Payload:                   "some polesnaya nagruzka, nehui mne tut delat",
+		ProviderToken:             paymentProviderToken,
+		ProviderData:              receipt,
+		Currency:                  ctx.product.AmountCurrency,
+		NeedPhoneNumber:           true,
+		NeedEmail:                 true,
+		SendPhoneNumberToProvider: true,
+		SendEmailToProvider:       true,
+		Prices: []tgapi.LabeledPrice{
+			{
+				Label:  ctx.product.ShortName,
+				Amount: ctx.product.AmountPrice * models.AmountKoeff,
+			},
+		},
+		SuggestedTipAmounts: []int{500 * models.AmountKoeff},
+		MaxTipAmount:        99999999 * models.AmountKoeff,
+	}
+
+	msgCfg.ChatID = chatId
+
+	cancelMessage := tgapi.MessageConfig{}
+	cancelMessage.Text = "go to pay or cancel"
+	cancelMessage.ReplyMarkup =
 		tgapi.NewInlineKeyboardMarkup(lo.Map(ctx.keyboard, nodeSliceToRow)...)
 
-	return msgCfg, nil
+	cancelMessage.ChatID = chatId
+	return []tgapi.Chattable{cancelMessage, msgCfg}, nil
 }
 
 func (ctx *PaymentContext) Transit(update tgapi.Update) UIContext {
@@ -123,31 +153,82 @@ func (ctx *PaymentContext) Transit(update tgapi.Update) UIContext {
 	if update.CallbackQuery != nil {
 		for _, node := range flatKeyboard {
 			if node.Name == update.CallbackQuery.Data {
-				return node.Transition(ctx)
+				return node.Transition(nil)
 			}
+		}
+		return ctx
+	} else if update.PreCheckoutQuery != nil {
+		nextCtx, err := ctx.pr.Action()
+		if err != nil {
+			nextCtx = NewNotifyContext("Something wrong, try later", err)
+		}
+
+		return &paymentPrecheckoutContext{
+			queryId: update.PreCheckoutQuery.ID,
+			nextCtx: nextCtx,
 		}
 	} else {
 		return ctx
 	}
-
-	return nil
 }
 
-func newPaymentState(cost string) paymentState {
-	return paymentState{}
+type paymentPrecheckoutContext struct {
+	queryId string
+	nextCtx UIContext
 }
 
-type paymentState struct {
+func (ctx *paymentPrecheckoutContext) Message(chatId int64) ([]tgapi.Chattable, error) {
+	msgCfg := tgapi.PreCheckoutConfig{
+		PreCheckoutQueryID: ctx.queryId,
+		OK:                 true,
+	}
+
+	return []tgapi.Chattable{msgCfg}, nil
 }
 
-func (pa *paymentState) GetLink() string {
-	return "https://"
+func (ctx *paymentPrecheckoutContext) Transit(update tgapi.Update) UIContext {
+	if update.Message != nil && update.Message.SuccessfulPayment != nil {
+		return ctx.nextCtx
+	} else {
+		return ctx
+	}
 }
 
-func (pa *paymentState) Cancel() error {
-	return nil
+func newYookassaReceiptPaymentJson(officialName string, amount models.Amount,
+	customer models.YookassaPaymentRecteiptCustomer) (string, error) {
+	receipt := models.YookassaPaymentReceipt{
+		Customer: customer,
+		Items: []models.YookassaPaymentReceiptItem{
+			{
+				Name:           officialName,
+				Amount:         amount,
+				VatCode:        1,
+				Quantity:       1,
+				Measure:        "piece",
+				PaymentSubject: "service",
+				PaymentMode:    "full_payment",
+			},
+		},
+	}
+
+	data, err := json.Marshal(&receipt)
+
+	return string(data), err
 }
 
-func (pa *paymentState) Check() bool {
-	return true
+func getPaymentCustomerByFile(filename string) (*models.YookassaPaymentRecteiptCustomer, error) {
+	var customer models.YookassaPaymentRecteiptCustomer
+
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	err = json.Unmarshal(data, &customer)
+	if err != nil {
+		return nil, err
+	}
+
+	return &customer, nil
+
 }

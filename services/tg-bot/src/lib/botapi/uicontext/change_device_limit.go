@@ -1,4 +1,4 @@
-package ui_context
+package uicontext
 
 import (
 	"strconv"
@@ -14,7 +14,7 @@ import (
 type ChangeDeviceLimitContext struct {
 	userInput string
 	user      models.User
-	keyboard  [][]contextNode
+	keyboard  [][]ContextNode
 }
 
 func NewChangeDeviceLimitContext(user models.User) *ChangeDeviceLimitContext {
@@ -25,24 +25,25 @@ func NewChangeDeviceLimitContext(user models.User) *ChangeDeviceLimitContext {
 	}
 }
 
-func (ctx *ChangeDeviceLimitContext) Message() (tgapi.MessageConfig, error) {
-	ctx.keyboard = [][]contextNode{{newHomeContextNode()}}
+func (ctx *ChangeDeviceLimitContext) Message(chatId int64) ([]tgapi.Chattable, error) {
+	ctx.keyboard = [][]ContextNode{{newHomeContextNode()}}
 	msgCfg := tgapi.MessageConfig{}
+	msgCfg.ChatID = chatId
 
 	if ctx.userInput == "" {
 		msgCfg.ReplyMarkup =
 			tgapi.NewInlineKeyboardMarkup(lo.Map(ctx.keyboard, nodeSliceToRow)...)
 
 		msgCfg.Text = "enter new device limit:"
-		return msgCfg, nil
+		return []tgapi.Chattable{msgCfg}, nil
 	}
 
 	updatedUser, isValidInput := validateDeviceLimitChanges(ctx.userInput, ctx.user)
 	if !isValidInput {
 		msgCfg.Text = "Incorrect input format, retry NOW:"
-		ctx.keyboard = [][]contextNode{
+		ctx.keyboard = [][]ContextNode{
 			{
-				contextNode{
+				ContextNode{
 					Name: "cancel",
 					Transition: func(any) UIContext {
 						return NewHomeContext()
@@ -54,34 +55,42 @@ func (ctx *ChangeDeviceLimitContext) Message() (tgapi.MessageConfig, error) {
 		msgCfg.ReplyMarkup =
 			tgapi.NewInlineKeyboardMarkup(lo.Map(ctx.keyboard, nodeSliceToRow)...)
 
-		return msgCfg, nil
+		return []tgapi.Chattable{msgCfg}, nil
 	}
 
 	msgCfg.Text = "go to pay"
 
-	ctx.keyboard = [][]contextNode{
+	ctx.keyboard = [][]ContextNode{
 		{
-			contextNode{
+			ContextNode{
 				Name: "go to pay",
 				Transition: func(any) UIContext {
-					cost := "828482583248 RUB"
 					panel := panelcli.NewClient()
 
-					return NewPaymentContext(cost,
-						newPaymentReason(
-							func() (UIContext, error) {
-								subPtr, err := panel.UpdateSubscribe(updatedUser)
-								if err != nil {
-									return NewHomeContext(), err
-								}
-								return NewSubContext(*subPtr), nil
-							},
-							func() error {
-								_, err := panel.UpdateSubscribe(ctx.user)
-								return err
-							},
-						),
+					// get product....
+					product := models.Product{
+						OfficialName:   "some name",
+						ShortName:      "some short name",
+						Description:    "some description",
+						AmountCurrency: "RUB",
+						AmountPrice:    100,
+					}
+
+					pr := newPaymentReason(
+						func() (UIContext, error) {
+							subPtr, err := panel.UpdateSubscribe(updatedUser)
+							if err != nil {
+								return NewHomeContext(), err
+							}
+							return NewSubContext(*subPtr), nil
+						},
+						func() error {
+							_, err := panel.UpdateSubscribe(ctx.user)
+							return err
+						},
 					)
+
+					return NewPaymentContext(product, pr)
 				},
 			},
 		},
@@ -90,7 +99,7 @@ func (ctx *ChangeDeviceLimitContext) Message() (tgapi.MessageConfig, error) {
 	msgCfg.ReplyMarkup =
 		tgapi.NewInlineKeyboardMarkup(lo.Map(ctx.keyboard, nodeSliceToRow)...)
 
-	return msgCfg, nil
+	return []tgapi.Chattable{msgCfg}, nil
 }
 
 func (ctx *ChangeDeviceLimitContext) Transit(update tgapi.Update) UIContext {
