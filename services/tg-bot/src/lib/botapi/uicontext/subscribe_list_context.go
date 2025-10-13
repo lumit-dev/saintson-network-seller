@@ -7,6 +7,7 @@ import (
 	models "github.com/saintson-network-seller/additions/models"
 
 	panelcli "tg-bot/src/lib/panel-server-cli"
+	"tg-bot/src/lib/repository"
 
 	tgapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	lo "github.com/samber/lo"
@@ -59,15 +60,22 @@ func (ctx *SubListContext) Message(chatId int64) ([]tgapi.Chattable, error) {
 						)
 
 						// get product....
-						product := models.Product{
-							OfficialName:   "some name",
-							ShortName:      "some short name",
-							Description:    "some description",
-							AmountCurrency: "RUB",
-							AmountPrice:    100,
-						}
+						
+						// product := models.Product{
+						// 	OfficialName:   "some name",
+						// 	ShortName:      "some short name",
+						// 	Description:    "some description",
+						// 	AmountCurrency: "RUB",
+						// 	AmountPrice:    100,
+						// }
+						id := 1
+						dbCli := repository.NewClient("products")
+						defer dbCli.CloseConnection()
+						product, err := dbCli.GetById(id)
+						if err != nil {
+       						return NewNotifyContext("Something wrong, try later", err)
+      					}
 						return NewPaymentContext(product, pr)
-
 					},
 				},
 			}, {newHomeContextNode()},
